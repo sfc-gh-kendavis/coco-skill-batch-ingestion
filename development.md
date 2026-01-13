@@ -1,0 +1,8 @@
+![Prompt](./images/watermarking-prompt.png)
+![Research-Web](./images/watermarking-research-web.png)
+![Research-CoCo](./images/watermarking-research-cortex-code-skills.png)
+![Watermarking-Options](./images/watermarking-options.png)
+![Saving-State](./images/watermarking-saving-state.png)
+![Created-Skill](./images/watermarking-skill-md.png)
+![Overview](./images/watermarking-overview.png)
+![Memories](./images/watermarking-memories-on-what-it-did.png)
