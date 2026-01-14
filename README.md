@@ -1,6 +1,6 @@
 # coco-skill-batch-ingestion
 
-% export PROJECT_HOME=/Users/kentontroydavis/Documents/development/cortex/projects/
+% export PROJECT_HOME=/Users/kentontroydavis/Documents/development/cortex/projects
 
 % cortex skill add ${PROJECT_HOME}/openflow-watermark-batch-ingestion
 ```
