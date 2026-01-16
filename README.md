@@ -9,5 +9,9 @@ Detected skills: openflow-watermark-batch-ingestion
 Success: Added skill directory: /Users/kentontroydavis/Documents/development/cortex/projects/openflow-watermark-batch-ingestion
 ```
 
-To see how the Skill was created using Cortex, go to [Batch Ingestion w. Watermarking](./development.md).
+To see how the Skill was created using CoCo, go to [Batch Ingestion w. Watermarking](./development.md).
 
+For an example of using the Skill in CoCo to build an Ingestion pipeline, using the following prompt
+```
+Please help me create an Openflow pipeline that performs change data capture via batch ingestion.
+```
