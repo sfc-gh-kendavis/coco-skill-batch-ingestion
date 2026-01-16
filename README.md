@@ -15,3 +15,5 @@ For an example of using the Skill in CoCo to build an Ingestion pipeline, using 
 ```
 Please help me create an Openflow pipeline that performs change data capture via batch ingestion.
 ```
+
+For examples and an overivew on strategies, go to [Examples](./openflow-watermark-batch-ingestion/examples.md)
