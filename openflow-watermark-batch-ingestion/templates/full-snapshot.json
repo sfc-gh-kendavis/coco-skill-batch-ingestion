@@ -1,0 +1,430 @@
+{
+  "flowContents": {
+    "identifier": "full-snapshot-flow",
+    "name": "Full Table Snapshot Ingestion",
+    "comments": "Full table snapshot using FetchTableSnapshot with primary key-based batching for tables without watermark columns",
+    "componentType": "PROCESS_GROUP",
+    "position": { "x": 0, "y": 0 },
+    "processGroups": [],
+    "remoteProcessGroups": [],
+    "processors": [
+      {
+        "identifier": "generate-schema-flowfile",
+        "name": "GenerateSchemaFlowFile",
+        "type": "org.apache.nifi.processors.standard.GenerateFlowFile",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 200, "y": 100 },
+        "properties": {
+          "File Size": "0B",
+          "Batch Size": "1",
+          "Data Format": "Text",
+          "Unique FlowFiles": "false",
+          "Custom Text": "#{source.table.schema.json}"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "#{schedule.interval}",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": []
+      },
+      {
+        "identifier": "fetch-table-snapshot",
+        "name": "FetchTableSnapshot",
+        "type": "com.snowflake.nifi.processors.database.FetchTableSnapshot",
+        "bundle": {
+          "group": "com.snowflake.openflow.runtime",
+          "artifact": "runtime-database-cdc-processors-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 200, "y": 250 },
+        "properties": {
+          "Connection Pool": "#{source.connection.pool.id}",
+          "Schema Name": "#{source.schema.name}",
+          "Table Name": "#{source.table.name}",
+          "Max Batch Size": "#{source.batch.size}",
+          "Fetch Size": "#{source.fetch.size}",
+          "Record Writer": "#{json.writer.id}",
+          "JDBC Driver Location": "#{source.driver.location}"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": []
+      },
+      {
+        "identifier": "route-on-attribute",
+        "name": "RouteOnSnapshotComplete",
+        "type": "org.apache.nifi.processors.standard.RouteOnAttribute",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 200, "y": 400 },
+        "properties": {
+          "Routing Strategy": "Route to Property name",
+          "snapshot_complete": "${snapshot.complete:equals('true')}"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": []
+      },
+      {
+        "identifier": "put-snowpipe-streaming",
+        "name": "PutSnowpipeStreaming",
+        "type": "com.snowflake.nifi.processors.snowpipe.PutSnowpipeStreaming",
+        "bundle": {
+          "group": "com.snowflake.openflow.runtime",
+          "artifact": "runtime-snowflake-processors-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 200, "y": 550 },
+        "properties": {
+          "Snowflake Account Identifier": "#{snowflake.account}",
+          "Snowflake User": "#{snowflake.user}",
+          "Private Key": "#{snowflake.private.key}",
+          "Private Key Passphrase": "#{snowflake.private.key.passphrase}",
+          "Database": "#{snowflake.database}",
+          "Schema": "#{snowflake.schema}",
+          "Table": "#{snowflake.table}",
+          "Role": "#{snowflake.role}",
+          "Record Reader": "#{json.reader.id}"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 2,
+        "autoTerminatedRelationships": []
+      },
+      {
+        "identifier": "log-snapshot-complete",
+        "name": "LogSnapshotComplete",
+        "type": "org.apache.nifi.processors.standard.LogAttribute",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 450, "y": 400 },
+        "properties": {
+          "Log Level": "info",
+          "Log Payload": "false",
+          "Log prefix": "SNAPSHOT_COMPLETE",
+          "Attributes to Log": "rows.total.fetched,fetch.total.time.in.millis"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": ["success"]
+      },
+      {
+        "identifier": "log-failure",
+        "name": "LogFailure",
+        "type": "org.apache.nifi.processors.standard.LogAttribute",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 500, "y": 550 },
+        "properties": {
+          "Log Level": "error",
+          "Log Payload": "true",
+          "Log prefix": "SNAPSHOT_FAILURE"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": ["success"]
+      },
+      {
+        "identifier": "wait-before-retry",
+        "name": "WaitBeforeRetry",
+        "type": "org.apache.nifi.processors.standard.ControlRate",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 400, "y": 250 },
+        "properties": {
+          "Rate Control Criteria": "flowfile count",
+          "Maximum Rate": "1",
+          "Rate Control Duration": "30 sec"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": []
+      }
+    ],
+    "inputPorts": [],
+    "outputPorts": [],
+    "connections": [
+      {
+        "identifier": "conn-generate-to-fetch",
+        "name": "GenerateToFetch",
+        "source": {
+          "id": "generate-schema-flowfile",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "fetch-table-snapshot",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["success"],
+        "backPressureObjectThreshold": 1,
+        "backPressureDataSizeThreshold": "1 MB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-fetch-rows-to-snowpipe",
+        "name": "FetchRowsToSnowpipe",
+        "source": {
+          "id": "fetch-table-snapshot",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["rows"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-fetch-complete-to-route",
+        "name": "FetchCompleteToRoute",
+        "source": {
+          "id": "fetch-table-snapshot",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "route-on-attribute",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["complete"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-route-complete-to-log",
+        "name": "RouteCompleteToLog",
+        "source": {
+          "id": "route-on-attribute",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "log-snapshot-complete",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["snapshot_complete"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-route-incomplete-to-fetch",
+        "name": "RouteIncompleteToFetch",
+        "source": {
+          "id": "route-on-attribute",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "fetch-table-snapshot",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["unmatched"],
+        "backPressureObjectThreshold": 1,
+        "backPressureDataSizeThreshold": "1 MB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-fetch-failure-to-wait",
+        "name": "FetchFailureToWait",
+        "source": {
+          "id": "fetch-table-snapshot",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "wait-before-retry",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["retryable failure"],
+        "backPressureObjectThreshold": 10,
+        "backPressureDataSizeThreshold": "1 MB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-wait-to-fetch",
+        "name": "WaitToFetch",
+        "source": {
+          "id": "wait-before-retry",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "fetch-table-snapshot",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["success"],
+        "backPressureObjectThreshold": 1,
+        "backPressureDataSizeThreshold": "1 MB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-fetch-permanent-failure",
+        "name": "FetchPermanentFailure",
+        "source": {
+          "id": "fetch-table-snapshot",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "log-failure",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["failure"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-snowpipe-success",
+        "name": "SnowpipeSuccess",
+        "source": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["success"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-snowpipe-failure",
+        "name": "SnowpipeFailure",
+        "source": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "log-failure",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["failure"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      }
+    ],
+    "controllerServices": [
+      {
+        "identifier": "source-hikari-pool",
+        "name": "SourceHikariCPConnectionPool",
+        "type": "org.apache.nifi.dbcp.HikariCPConnectionPool",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-dbcp-service-nar",
+          "version": "2.0.0"
+        },
+        "properties": {
+          "Database Connection URL": "#{source.jdbc.url}",
+          "Database Driver Class Name": "#{source.driver.class}",
+          "database-driver-locations": "#{source.driver.location}",
+          "Database User": "#{source.username}",
+          "Password": "#{source.password}",
+          "Max Wait Time": "500 millis",
+          "Max Total Connections": "8"
+        }
+      },
+      {
+        "identifier": "json-writer",
+        "name": "JsonRecordSetWriter",
+        "type": "org.apache.nifi.json.JsonRecordSetWriter",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-record-serialization-services-nar",
+          "version": "2.0.0"
+        },
+        "properties": {
+          "Output Grouping": "output-array",
+          "Pretty Print JSON": "false"
+        }
+      },
+      {
+        "identifier": "json-reader",
+        "name": "JsonTreeReader",
+        "type": "org.apache.nifi.json.JsonTreeReader",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-record-serialization-services-nar",
+          "version": "2.0.0"
+        },
+        "properties": {}
+      }
+    ],
+    "parameterContexts": [
+      {
+        "identifier": "full-snapshot-params",
+        "name": "FullSnapshotParameters",
+        "description": "Parameters for full table snapshot ingestion",
+        "parameters": [
+          { "name": "source.jdbc.url", "value": "jdbc:postgresql://localhost:5432/mydb", "sensitive": false },
+          { "name": "source.driver.class", "value": "org.postgresql.Driver", "sensitive": false },
+          { "name": "source.driver.location", "value": "/opt/nifi/drivers/postgresql-42.7.3.jar", "sensitive": false },
+          { "name": "source.username", "value": "", "sensitive": false },
+          { "name": "source.password", "value": "", "sensitive": true },
+          { "name": "source.schema.name", "value": "public", "sensitive": false },
+          { "name": "source.table.name", "value": "dim_products", "sensitive": false },
+          { "name": "source.batch.size", "value": "10000", "sensitive": false },
+          { "name": "source.fetch.size", "value": "1000", "sensitive": false },
+          { 
+            "name": "source.table.schema.json", 
+            "value": "{\"columns\":[{\"name\":\"id\",\"type\":\"INTEGER\"},{\"name\":\"name\",\"type\":\"VARCHAR\"},{\"name\":\"category\",\"type\":\"VARCHAR\"},{\"name\":\"price\",\"type\":\"DECIMAL\"}],\"primaryKeys\":[\"id\"]}", 
+            "sensitive": false,
+            "description": "JSON schema defining columns and primary keys for FetchTableSnapshot. Format: {columns:[{name,type},...], primaryKeys:[...]}"
+          },
+          { "name": "schedule.interval", "value": "1 day", "sensitive": false },
+          { "name": "snowflake.account", "value": "", "sensitive": false },
+          { "name": "snowflake.user", "value": "", "sensitive": false },
+          { "name": "snowflake.private.key", "value": "", "sensitive": true },
+          { "name": "snowflake.private.key.passphrase", "value": "", "sensitive": true },
+          { "name": "snowflake.database", "value": "", "sensitive": false },
+          { "name": "snowflake.schema", "value": "", "sensitive": false },
+          { "name": "snowflake.table", "value": "", "sensitive": false },
+          { "name": "snowflake.role", "value": "", "sensitive": false }
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "identifier": "label-description",
+        "position": { "x": 0, "y": 0 },
+        "width": 700,
+        "height": 140,
+        "label": "Full Table Snapshot Flow\n\nUses FetchTableSnapshot to read entire tables without watermark columns.\nFetches incrementally using primary key columns for batching.\nIdeal for dimension tables or initial data loads.\n\nRequires: JSON schema with columns and primaryKeys in input FlowFile."
+      }
+    ],
+    "funnels": []
+  },
+  "snapshotMetadata": {
+    "flowIdentifier": "full-snapshot-flow",
+    "flowName": "Full Table Snapshot Ingestion",
+    "version": 1
+  }
+}

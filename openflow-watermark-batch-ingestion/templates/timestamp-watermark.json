@@ -1,0 +1,297 @@
+{
+  "flowContents": {
+    "identifier": "timestamp-watermark-flow",
+    "name": "Timestamp Watermark Batch Ingestion",
+    "comments": "Incremental batch ingestion using timestamp-based watermarking with QueryDatabaseTable",
+    "componentType": "PROCESS_GROUP",
+    "position": { "x": 0, "y": 0 },
+    "processGroups": [],
+    "remoteProcessGroups": [],
+    "processors": [
+      {
+        "identifier": "query-database-table",
+        "name": "QueryDatabaseTable",
+        "type": "org.apache.nifi.processors.standard.QueryDatabaseTable",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 200, "y": 200 },
+        "properties": {
+          "Database Connection Pooling Service": "#{source.connection.pool.id}",
+          "db-fetch-db-type": "#{source.database.type}",
+          "Table Name": "#{source.table.name}",
+          "Columns to Return": "#{source.columns}",
+          "Maximum-value Columns": "#{source.watermark.column}",
+          "db-fetch-where-clause": "#{source.where.clause}",
+          "initial-load-strategy": "#{source.initial.load.strategy}",
+          "Fetch Size": "#{source.fetch.size}",
+          "Max Wait Time": "0 seconds",
+          "qdbt-max-rows": "0",
+          "qdbt-output-batch-size": "0",
+          "dbf-normalize": "false",
+          "dbf-user-logical-types": "false"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "#{schedule.interval}",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": []
+      },
+      {
+        "identifier": "convert-avro-to-json",
+        "name": "ConvertAvroToJSON",
+        "type": "org.apache.nifi.processors.standard.ConvertRecord",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 200, "y": 400 },
+        "properties": {
+          "record-reader": "#{avro.reader.id}",
+          "record-writer": "#{json.writer.id}"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": []
+      },
+      {
+        "identifier": "put-snowpipe-streaming",
+        "name": "PutSnowpipeStreaming",
+        "type": "com.snowflake.nifi.processors.snowpipe.PutSnowpipeStreaming",
+        "bundle": {
+          "group": "com.snowflake.openflow.runtime",
+          "artifact": "runtime-snowflake-processors-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 200, "y": 600 },
+        "properties": {
+          "Snowflake Account Identifier": "#{snowflake.account}",
+          "Snowflake User": "#{snowflake.user}",
+          "Private Key": "#{snowflake.private.key}",
+          "Private Key Passphrase": "#{snowflake.private.key.passphrase}",
+          "Database": "#{snowflake.database}",
+          "Schema": "#{snowflake.schema}",
+          "Table": "#{snowflake.table}",
+          "Role": "#{snowflake.role}",
+          "Record Reader": "#{json.reader.id}"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": []
+      },
+      {
+        "identifier": "log-failure",
+        "name": "LogFailure",
+        "type": "org.apache.nifi.processors.standard.LogAttribute",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 500, "y": 600 },
+        "properties": {
+          "Log Level": "error",
+          "Log Payload": "true",
+          "Log prefix": "INGESTION_FAILURE"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": ["success"]
+      }
+    ],
+    "inputPorts": [],
+    "outputPorts": [],
+    "connections": [
+      {
+        "identifier": "conn-query-to-convert",
+        "name": "QueryToConvert",
+        "source": {
+          "id": "query-database-table",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "convert-avro-to-json",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["success"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-convert-to-snowpipe",
+        "name": "ConvertToSnowpipe",
+        "source": {
+          "id": "convert-avro-to-json",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["success"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-convert-failure",
+        "name": "ConvertFailure",
+        "source": {
+          "id": "convert-avro-to-json",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "log-failure",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["failure"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-snowpipe-success",
+        "name": "SnowpipeSuccess",
+        "source": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["success"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-snowpipe-failure",
+        "name": "SnowpipeFailure",
+        "source": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "log-failure",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["failure"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      }
+    ],
+    "controllerServices": [
+      {
+        "identifier": "source-dbcp-pool",
+        "name": "SourceDBCPConnectionPool",
+        "type": "org.apache.nifi.dbcp.DBCPConnectionPool",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-dbcp-service-nar",
+          "version": "2.0.0"
+        },
+        "properties": {
+          "Database Connection URL": "#{source.jdbc.url}",
+          "Database Driver Class Name": "#{source.driver.class}",
+          "database-driver-locations": "#{source.driver.location}",
+          "Database User": "#{source.username}",
+          "Password": "#{source.password}",
+          "Max Wait Time": "500 millis",
+          "Max Total Connections": "8"
+        }
+      },
+      {
+        "identifier": "avro-reader",
+        "name": "AvroReader",
+        "type": "org.apache.nifi.avro.AvroReader",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-record-serialization-services-nar",
+          "version": "2.0.0"
+        },
+        "properties": {}
+      },
+      {
+        "identifier": "json-writer",
+        "name": "JsonRecordSetWriter",
+        "type": "org.apache.nifi.json.JsonRecordSetWriter",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-record-serialization-services-nar",
+          "version": "2.0.0"
+        },
+        "properties": {
+          "Output Grouping": "output-array",
+          "Pretty Print JSON": "false"
+        }
+      },
+      {
+        "identifier": "json-reader",
+        "name": "JsonTreeReader",
+        "type": "org.apache.nifi.json.JsonTreeReader",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-record-serialization-services-nar",
+          "version": "2.0.0"
+        },
+        "properties": {}
+      }
+    ],
+    "parameterContexts": [
+      {
+        "identifier": "timestamp-watermark-params",
+        "name": "TimestampWatermarkParameters",
+        "parameters": [
+          { "name": "source.jdbc.url", "value": "jdbc:postgresql://localhost:5432/mydb", "sensitive": false },
+          { "name": "source.driver.class", "value": "org.postgresql.Driver", "sensitive": false },
+          { "name": "source.driver.location", "value": "/opt/nifi/drivers/postgresql-42.7.3.jar", "sensitive": false },
+          { "name": "source.username", "value": "", "sensitive": false },
+          { "name": "source.password", "value": "", "sensitive": true },
+          { "name": "source.database.type", "value": "PostgreSQL", "sensitive": false },
+          { "name": "source.table.name", "value": "public.orders", "sensitive": false },
+          { "name": "source.columns", "value": "", "sensitive": false },
+          { "name": "source.watermark.column", "value": "updated_at", "sensitive": false },
+          { "name": "source.where.clause", "value": "", "sensitive": false },
+          { "name": "source.initial.load.strategy", "value": "Start at Current Maximum Values", "sensitive": false },
+          { "name": "source.fetch.size", "value": "1000", "sensitive": false },
+          { "name": "schedule.interval", "value": "5 min", "sensitive": false },
+          { "name": "snowflake.account", "value": "", "sensitive": false },
+          { "name": "snowflake.user", "value": "", "sensitive": false },
+          { "name": "snowflake.private.key", "value": "", "sensitive": true },
+          { "name": "snowflake.private.key.passphrase", "value": "", "sensitive": true },
+          { "name": "snowflake.database", "value": "", "sensitive": false },
+          { "name": "snowflake.schema", "value": "", "sensitive": false },
+          { "name": "snowflake.table", "value": "", "sensitive": false },
+          { "name": "snowflake.role", "value": "", "sensitive": false }
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "identifier": "label-description",
+        "position": { "x": 0, "y": 0 },
+        "width": 600,
+        "height": 100,
+        "label": "Timestamp-Based Watermark Flow\n\nUses QueryDatabaseTable to incrementally fetch rows based on a timestamp column.\nTracks maximum value of the watermark column across runs."
+      }
+    ],
+    "funnels": []
+  },
+  "snapshotMetadata": {
+    "flowIdentifier": "timestamp-watermark-flow",
+    "flowName": "Timestamp Watermark Batch Ingestion",
+    "version": 1
+  }
+}

@@ -1,0 +1,480 @@
+{
+  "flowContents": {
+    "identifier": "composite-watermark-flow",
+    "name": "Composite Watermark Batch Ingestion",
+    "comments": "Incremental batch ingestion using composite/hierarchical watermarking with GenerateTableFetch for parallel processing",
+    "componentType": "PROCESS_GROUP",
+    "position": { "x": 0, "y": 0 },
+    "processGroups": [],
+    "remoteProcessGroups": [],
+    "processors": [
+      {
+        "identifier": "generate-table-fetch",
+        "name": "GenerateTableFetch",
+        "type": "org.apache.nifi.processors.standard.GenerateTableFetch",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 200, "y": 200 },
+        "properties": {
+          "Database Connection Pooling Service": "#{source.connection.pool.id}",
+          "db-fetch-db-type": "#{source.database.type}",
+          "Table Name": "#{source.table.name}",
+          "Columns to Return": "#{source.columns}",
+          "Maximum-value Columns": "#{source.watermark.columns}",
+          "db-fetch-where-clause": "#{source.where.clause}",
+          "gen-table-fetch-partition-size": "#{source.partition.size}",
+          "Max Wait Time": "0 seconds"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "#{schedule.interval}",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": []
+      },
+      {
+        "identifier": "execute-sql",
+        "name": "ExecuteSQL",
+        "type": "org.apache.nifi.processors.standard.ExecuteSQL",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 200, "y": 350 },
+        "properties": {
+          "Database Connection Pooling Service": "#{source.connection.pool.id}",
+          "SQL select query": "${sql.query}",
+          "Max Wait Time": "0 seconds",
+          "esql-fetch-size": "#{source.fetch.size}",
+          "esql-max-rows": "0",
+          "esql-output-batch-size": "0"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": "#{parallel.tasks}",
+        "autoTerminatedRelationships": []
+      },
+      {
+        "identifier": "convert-avro-to-json",
+        "name": "ConvertAvroToJSON",
+        "type": "org.apache.nifi.processors.standard.ConvertRecord",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 200, "y": 500 },
+        "properties": {
+          "record-reader": "#{avro.reader.id}",
+          "record-writer": "#{json.writer.id}"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": "#{parallel.tasks}",
+        "autoTerminatedRelationships": []
+      },
+      {
+        "identifier": "merge-content",
+        "name": "MergeContent",
+        "type": "org.apache.nifi.processors.standard.MergeContent",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 200, "y": 650 },
+        "properties": {
+          "Merge Strategy": "Defragment",
+          "Merge Format": "Binary Concatenation",
+          "Delimiter Strategy": "Text",
+          "Header": "",
+          "Footer": "",
+          "Demarcator": "\n",
+          "Minimum Number of Entries": "1",
+          "Maximum Number of Entries": "1000",
+          "Maximum Number of Bins": "100",
+          "Max Bin Age": "30 sec"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": ["original"]
+      },
+      {
+        "identifier": "put-snowpipe-streaming",
+        "name": "PutSnowpipeStreaming",
+        "type": "com.snowflake.nifi.processors.snowpipe.PutSnowpipeStreaming",
+        "bundle": {
+          "group": "com.snowflake.openflow.runtime",
+          "artifact": "runtime-snowflake-processors-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 200, "y": 800 },
+        "properties": {
+          "Snowflake Account Identifier": "#{snowflake.account}",
+          "Snowflake User": "#{snowflake.user}",
+          "Private Key": "#{snowflake.private.key}",
+          "Private Key Passphrase": "#{snowflake.private.key.passphrase}",
+          "Database": "#{snowflake.database}",
+          "Schema": "#{snowflake.schema}",
+          "Table": "#{snowflake.table}",
+          "Role": "#{snowflake.role}",
+          "Record Reader": "#{json.reader.id}"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 2,
+        "autoTerminatedRelationships": []
+      },
+      {
+        "identifier": "log-failure",
+        "name": "LogFailure",
+        "type": "org.apache.nifi.processors.standard.LogAttribute",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 500, "y": 500 },
+        "properties": {
+          "Log Level": "error",
+          "Log Payload": "true",
+          "Log prefix": "COMPOSITE_WATERMARK_FAILURE"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": ["success"]
+      },
+      {
+        "identifier": "retry-flowfile",
+        "name": "RetryFlowFile",
+        "type": "org.apache.nifi.processors.standard.RetryFlowFile",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 400, "y": 350 },
+        "properties": {
+          "Retry Attribute": "retry.count",
+          "Maximum Retries": "3",
+          "Penalize Retries": "true",
+          "Fail on Non-numerical Overwrite": "false"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": []
+      }
+    ],
+    "inputPorts": [],
+    "outputPorts": [],
+    "connections": [
+      {
+        "identifier": "conn-generate-to-execute",
+        "name": "GenerateToExecute",
+        "source": {
+          "id": "generate-table-fetch",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "execute-sql",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["success"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-generate-failure",
+        "name": "GenerateFailure",
+        "source": {
+          "id": "generate-table-fetch",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "log-failure",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["failure"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-execute-to-convert",
+        "name": "ExecuteToConvert",
+        "source": {
+          "id": "execute-sql",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "convert-avro-to-json",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["success"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-execute-to-retry",
+        "name": "ExecuteToRetry",
+        "source": {
+          "id": "execute-sql",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "retry-flowfile",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["failure"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-retry-to-execute",
+        "name": "RetryToExecute",
+        "source": {
+          "id": "retry-flowfile",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "execute-sql",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["retry"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-retry-failure",
+        "name": "RetryFailure",
+        "source": {
+          "id": "retry-flowfile",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "log-failure",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["retries_exceeded"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-convert-to-merge",
+        "name": "ConvertToMerge",
+        "source": {
+          "id": "convert-avro-to-json",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "merge-content",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["success"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-convert-failure",
+        "name": "ConvertFailure",
+        "source": {
+          "id": "convert-avro-to-json",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "log-failure",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["failure"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-merge-to-snowpipe",
+        "name": "MergeToSnowpipe",
+        "source": {
+          "id": "merge-content",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["merged"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-merge-failure",
+        "name": "MergeFailure",
+        "source": {
+          "id": "merge-content",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "log-failure",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["failure"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-snowpipe-success",
+        "name": "SnowpipeSuccess",
+        "source": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["success"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-snowpipe-failure",
+        "name": "SnowpipeFailure",
+        "source": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "log-failure",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["failure"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      }
+    ],
+    "controllerServices": [
+      {
+        "identifier": "source-dbcp-pool",
+        "name": "SourceDBCPConnectionPool",
+        "type": "org.apache.nifi.dbcp.DBCPConnectionPool",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-dbcp-service-nar",
+          "version": "2.0.0"
+        },
+        "properties": {
+          "Database Connection URL": "#{source.jdbc.url}",
+          "Database Driver Class Name": "#{source.driver.class}",
+          "database-driver-locations": "#{source.driver.location}",
+          "Database User": "#{source.username}",
+          "Password": "#{source.password}",
+          "Max Wait Time": "500 millis",
+          "Max Total Connections": "#{source.max.connections}"
+        }
+      },
+      {
+        "identifier": "avro-reader",
+        "name": "AvroReader",
+        "type": "org.apache.nifi.avro.AvroReader",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-record-serialization-services-nar",
+          "version": "2.0.0"
+        },
+        "properties": {}
+      },
+      {
+        "identifier": "json-writer",
+        "name": "JsonRecordSetWriter",
+        "type": "org.apache.nifi.json.JsonRecordSetWriter",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-record-serialization-services-nar",
+          "version": "2.0.0"
+        },
+        "properties": {
+          "Output Grouping": "output-array",
+          "Pretty Print JSON": "false"
+        }
+      },
+      {
+        "identifier": "json-reader",
+        "name": "JsonTreeReader",
+        "type": "org.apache.nifi.json.JsonTreeReader",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-record-serialization-services-nar",
+          "version": "2.0.0"
+        },
+        "properties": {}
+      }
+    ],
+    "parameterContexts": [
+      {
+        "identifier": "composite-watermark-params",
+        "name": "CompositeWatermarkParameters",
+        "parameters": [
+          { "name": "source.jdbc.url", "value": "jdbc:postgresql://localhost:5432/mydb", "sensitive": false },
+          { "name": "source.driver.class", "value": "org.postgresql.Driver", "sensitive": false },
+          { "name": "source.driver.location", "value": "/opt/nifi/drivers/postgresql-42.7.3.jar", "sensitive": false },
+          { "name": "source.username", "value": "", "sensitive": false },
+          { "name": "source.password", "value": "", "sensitive": true },
+          { "name": "source.database.type", "value": "PostgreSQL", "sensitive": false },
+          { "name": "source.table.name", "value": "sales.transactions", "sensitive": false },
+          { "name": "source.columns", "value": "", "sensitive": false },
+          { "name": "source.watermark.columns", "value": "sale_date, transaction_seq", "sensitive": false },
+          { "name": "source.where.clause", "value": "", "sensitive": false },
+          { "name": "source.partition.size", "value": "10000", "sensitive": false },
+          { "name": "source.fetch.size", "value": "1000", "sensitive": false },
+          { "name": "source.max.connections", "value": "10", "sensitive": false },
+          { "name": "parallel.tasks", "value": "4", "sensitive": false },
+          { "name": "schedule.interval", "value": "5 min", "sensitive": false },
+          { "name": "snowflake.account", "value": "", "sensitive": false },
+          { "name": "snowflake.user", "value": "", "sensitive": false },
+          { "name": "snowflake.private.key", "value": "", "sensitive": true },
+          { "name": "snowflake.private.key.passphrase", "value": "", "sensitive": true },
+          { "name": "snowflake.database", "value": "", "sensitive": false },
+          { "name": "snowflake.schema", "value": "", "sensitive": false },
+          { "name": "snowflake.table", "value": "", "sensitive": false },
+          { "name": "snowflake.role", "value": "", "sensitive": false }
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "identifier": "label-description",
+        "position": { "x": 0, "y": 0 },
+        "width": 700,
+        "height": 120,
+        "label": "Composite/Hierarchical Watermark Flow\n\nUses GenerateTableFetch to create partitioned SQL queries based on multiple watermark columns.\nExecuteSQL runs queries in parallel for high throughput on large tables.\nMergeContent consolidates results before loading to Snowflake."
+      }
+    ],
+    "funnels": []
+  },
+  "snapshotMetadata": {
+    "flowIdentifier": "composite-watermark-flow",
+    "flowName": "Composite Watermark Batch Ingestion",
+    "version": 1
+  }
+}
