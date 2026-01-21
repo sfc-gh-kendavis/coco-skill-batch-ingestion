@@ -18,8 +18,8 @@ For an example of using the Skill in CoCo to build an Ingestion pipeline, using 
 Please help me create an Openflow pipeline that performs change data capture via batch ingestion.
 ```
 
-You can tell CoCo to create placeholders instead of specifying every parameter value. See example flow w/ placeholders.
-![Placeholders](./output/sqlserver-timestamp-cdc-flow.json)
+You can tell CoCo to create placeholders instead of specifying every parameter value. 
+See example flow w/ placeholders. [Placeholders](./output/sqlserver-timestamp-cdc-flow.json)
 
 For examples and an overivew on strategies, go to [Examples](./openflow-watermark-batch-ingestion/examples.md)
 
