@@ -1,0 +1,396 @@
+{
+  "flowContents": {
+    "identifier": "sqlserver-timestamp-cdc-flow",
+    "name": "SQL Server Timestamp CDC to Snowflake",
+    "comments": "Change data capture from SQL Server to Snowflake using timestamp-based watermarking",
+    "componentType": "PROCESS_GROUP",
+    "position": { "x": 0, "y": 0 },
+    "processGroups": [],
+    "remoteProcessGroups": [],
+    "processors": [
+      {
+        "identifier": "query-database-table",
+        "name": "QueryDatabaseTable - CDC Fetch",
+        "type": "org.apache.nifi.processors.standard.QueryDatabaseTable",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 200, "y": 200 },
+        "properties": {
+          "Database Connection Pooling Service": "source-dbcp-pool",
+          "db-fetch-db-type": "MS SQL 2012+",
+          "Table Name": "#{source.table.name}",
+          "Columns to Return": "#{source.columns}",
+          "Maximum-value Columns": "#{source.watermark.column}",
+          "db-fetch-where-clause": "#{source.where.clause}",
+          "initial-load-strategy": "Start at Beginning",
+          "Fetch Size": "#{source.fetch.size}",
+          "Max Wait Time": "0 seconds",
+          "qdbt-max-rows": "0",
+          "qdbt-output-batch-size": "0",
+          "dbf-normalize": "false",
+          "dbf-user-logical-types": "false"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "#{schedule.interval}",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": []
+      },
+      {
+        "identifier": "convert-avro-to-json",
+        "name": "ConvertRecord - Avro to JSON",
+        "type": "org.apache.nifi.processors.standard.ConvertRecord",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 200, "y": 400 },
+        "properties": {
+          "record-reader": "avro-reader",
+          "record-writer": "json-writer"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": []
+      },
+      {
+        "identifier": "put-snowpipe-streaming",
+        "name": "PutSnowpipeStreaming - Load to Snowflake",
+        "type": "com.snowflake.nifi.processors.snowpipe.PutSnowpipeStreaming",
+        "bundle": {
+          "group": "com.snowflake.openflow.runtime",
+          "artifact": "runtime-snowflake-processors-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 200, "y": 600 },
+        "properties": {
+          "Snowflake Account Identifier": "#{snowflake.account}",
+          "Snowflake User": "#{snowflake.user}",
+          "Private Key": "#{snowflake.private.key}",
+          "Private Key Passphrase": "#{snowflake.private.key.passphrase}",
+          "Database": "#{snowflake.database}",
+          "Schema": "#{snowflake.schema}",
+          "Table": "#{snowflake.table}",
+          "Role": "#{snowflake.role}",
+          "Record Reader": "json-reader"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": []
+      },
+      {
+        "identifier": "log-failure",
+        "name": "LogAttribute - Failure Handler",
+        "type": "org.apache.nifi.processors.standard.LogAttribute",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.0.0"
+        },
+        "position": { "x": 500, "y": 500 },
+        "properties": {
+          "Log Level": "error",
+          "Log Payload": "true",
+          "Log prefix": "CDC_INGESTION_FAILURE"
+        },
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "schedulingPeriod": "0 sec",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": ["success"]
+      }
+    ],
+    "inputPorts": [],
+    "outputPorts": [],
+    "connections": [
+      {
+        "identifier": "conn-query-to-convert",
+        "name": "Query Success to Convert",
+        "source": {
+          "id": "query-database-table",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "convert-avro-to-json",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["success"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-convert-to-snowpipe",
+        "name": "Convert Success to Snowpipe",
+        "source": {
+          "id": "convert-avro-to-json",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["success"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-convert-failure",
+        "name": "Convert Failure to Log",
+        "source": {
+          "id": "convert-avro-to-json",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "log-failure",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["failure"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-snowpipe-failure",
+        "name": "Snowpipe Failure to Log",
+        "source": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "log-failure",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["failure"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      },
+      {
+        "identifier": "conn-snowpipe-success",
+        "name": "Snowpipe Success (Auto-terminate)",
+        "source": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "destination": {
+          "id": "put-snowpipe-streaming",
+          "type": "PROCESSOR"
+        },
+        "selectedRelationships": ["success"],
+        "backPressureObjectThreshold": 10000,
+        "backPressureDataSizeThreshold": "1 GB",
+        "flowFileExpiration": "0 sec"
+      }
+    ],
+    "controllerServices": [
+      {
+        "identifier": "source-dbcp-pool",
+        "name": "SQL Server Connection Pool",
+        "type": "org.apache.nifi.dbcp.DBCPConnectionPool",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-dbcp-service-nar",
+          "version": "2.0.0"
+        },
+        "properties": {
+          "Database Connection URL": "jdbc:sqlserver://#{source.host}:#{source.port};databaseName=#{source.database};encrypt=true;trustServerCertificate=true",
+          "Database Driver Class Name": "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+          "database-driver-locations": "#{source.driver.location}",
+          "Database User": "#{source.username}",
+          "Password": "#{source.password}",
+          "Max Wait Time": "500 millis",
+          "Max Total Connections": "8"
+        }
+      },
+      {
+        "identifier": "avro-reader",
+        "name": "AvroReader",
+        "type": "org.apache.nifi.avro.AvroReader",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-record-serialization-services-nar",
+          "version": "2.0.0"
+        },
+        "properties": {}
+      },
+      {
+        "identifier": "json-writer",
+        "name": "JsonRecordSetWriter",
+        "type": "org.apache.nifi.json.JsonRecordSetWriter",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-record-serialization-services-nar",
+          "version": "2.0.0"
+        },
+        "properties": {
+          "Output Grouping": "output-array",
+          "Pretty Print JSON": "false"
+        }
+      },
+      {
+        "identifier": "json-reader",
+        "name": "JsonTreeReader",
+        "type": "org.apache.nifi.json.JsonTreeReader",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-record-serialization-services-nar",
+          "version": "2.0.0"
+        },
+        "properties": {}
+      }
+    ],
+    "parameterContexts": [
+      {
+        "identifier": "sqlserver-cdc-params",
+        "name": "SQL Server CDC Parameters",
+        "parameters": [
+          {
+            "name": "source.host",
+            "value": "<YOUR_SQLSERVER_HOST>",
+            "description": "SQL Server hostname or IP address",
+            "sensitive": false
+          },
+          {
+            "name": "source.port",
+            "value": "1433",
+            "description": "SQL Server port (default: 1433)",
+            "sensitive": false
+          },
+          {
+            "name": "source.database",
+            "value": "<YOUR_DATABASE_NAME>",
+            "description": "Source database name",
+            "sensitive": false
+          },
+          {
+            "name": "source.table.name",
+            "value": "<YOUR_SCHEMA>.<YOUR_TABLE>",
+            "description": "Fully qualified table name (schema.table)",
+            "sensitive": false
+          },
+          {
+            "name": "source.columns",
+            "value": "",
+            "description": "Columns to fetch (empty = all columns)",
+            "sensitive": false
+          },
+          {
+            "name": "source.watermark.column",
+            "value": "<YOUR_TIMESTAMP_COLUMN>",
+            "description": "Timestamp column for change tracking (e.g., updated_at, modified_date)",
+            "sensitive": false
+          },
+          {
+            "name": "source.where.clause",
+            "value": "",
+            "description": "Optional WHERE clause filter",
+            "sensitive": false
+          },
+          {
+            "name": "source.fetch.size",
+            "value": "1000",
+            "description": "Number of rows to fetch per batch",
+            "sensitive": false
+          },
+          {
+            "name": "source.username",
+            "value": "<YOUR_SQLSERVER_USERNAME>",
+            "description": "SQL Server username",
+            "sensitive": false
+          },
+          {
+            "name": "source.password",
+            "value": "<YOUR_SQLSERVER_PASSWORD>",
+            "description": "SQL Server password",
+            "sensitive": true
+          },
+          {
+            "name": "source.driver.location",
+            "value": "/opt/nifi/drivers/mssql-jdbc-12.4.2.jre11.jar",
+            "description": "Path to SQL Server JDBC driver JAR",
+            "sensitive": false
+          },
+          {
+            "name": "schedule.interval",
+            "value": "5 min",
+            "description": "How often to poll for changes",
+            "sensitive": false
+          },
+          {
+            "name": "snowflake.account",
+            "value": "<YOUR_SNOWFLAKE_ACCOUNT>",
+            "description": "Snowflake account identifier (e.g., xy12345.us-east-1)",
+            "sensitive": false
+          },
+          {
+            "name": "snowflake.user",
+            "value": "<YOUR_SNOWFLAKE_USER>",
+            "description": "Snowflake username",
+            "sensitive": false
+          },
+          {
+            "name": "snowflake.private.key",
+            "value": "<YOUR_RSA_PRIVATE_KEY>",
+            "description": "RSA private key for key-pair authentication (PEM format)",
+            "sensitive": true
+          },
+          {
+            "name": "snowflake.private.key.passphrase",
+            "value": "",
+            "description": "Passphrase for encrypted private key (if applicable)",
+            "sensitive": true
+          },
+          {
+            "name": "snowflake.database",
+            "value": "<YOUR_SNOWFLAKE_DATABASE>",
+            "description": "Target Snowflake database",
+            "sensitive": false
+          },
+          {
+            "name": "snowflake.schema",
+            "value": "<YOUR_SNOWFLAKE_SCHEMA>",
+            "description": "Target Snowflake schema",
+            "sensitive": false
+          },
+          {
+            "name": "snowflake.table",
+            "value": "<YOUR_SNOWFLAKE_TABLE>",
+            "description": "Target Snowflake table",
+            "sensitive": false
+          },
+          {
+            "name": "snowflake.role",
+            "value": "<YOUR_SNOWFLAKE_ROLE>",
+            "description": "Snowflake role to use",
+            "sensitive": false
+          }
+        ]
+      }
+    ],
+    "labels": [
+      {
+        "identifier": "label-description",
+        "position": { "x": 0, "y": 0 },
+        "width": 700,
+        "height": 120,
+        "label": "SQL Server Timestamp-Based CDC Flow\n\nUses QueryDatabaseTable to incrementally fetch changed rows based on a timestamp column.\nTracks the maximum value of the watermark column across runs.\nInitial load strategy: Start at Beginning (fetches all existing rows first)"
+      }
+    ],
+    "funnels": []
+  },
+  "snapshotMetadata": {
+    "flowIdentifier": "sqlserver-timestamp-cdc-flow",
+    "flowName": "SQL Server Timestamp CDC to Snowflake",
+    "version": 1
+  }
+}
