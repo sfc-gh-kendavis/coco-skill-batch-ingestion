@@ -11,7 +11,7 @@ Success: Added skill directory: /Users/kentontroydavis/Documents/development/cor
 
 To see how the Skill was created using CoCo, go to [Batch Ingestion w. Watermarking](./development.md).
 
-[Skill visible in CoCo](./images/watermarking-skill-loading)
+![Skill visible in CoCo](./images/watermarking-skill-loading)
 
 For an example of using the Skill in CoCo to build an Ingestion pipeline, using the following prompt
 ```
