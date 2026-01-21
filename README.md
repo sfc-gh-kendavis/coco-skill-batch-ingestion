@@ -1,7 +1,7 @@
 # coco-skill-batch-ingestion
 
-We are developing a reusable AI Skill that can perform batch ingestions across a variety of source and destination types.
-We also assert the fact that low latency, Change Data Capture is not always needed depending upon the requirements. This Skill captures changes
+We are developing a reusable AI Skill that can perform batch ingestion across a variety of source and destination types.
+We believe that low latency, Change Data Capture is not always needed depending upon the requirements. This Skill captures changes
 using various watermarking strategies via batch ingestion.
 Interactively, CoCo can ask for the types to choose the right Processors, Service Controllers, and populate the Parameter Context.
 Most importantly, CoCo uses the Skill to advise upon the best ingestion strategy based upon the user input.
