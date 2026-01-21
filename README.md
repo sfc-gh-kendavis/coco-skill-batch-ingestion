@@ -1,5 +1,12 @@
 # coco-skill-batch-ingestion
 
+We believe that it is very useful to have a resuble AI Skill that can perform batch ingestions across a variety of source and destination types.
+We also assert the fact that low latency, Change Data Capture is not always needed depending upon the requirements. This Skill captures changes
+using various watermarking strategies via batch ingestion.
+Interactively, CoCo can ask for the types to choose the right Processors, Service Controllers, and populate the Parameter Context.
+Most importantly, CoCo uses the Skill to advise upon the best ingestion strategy based upon the user input.
+
+
 % export PROJECT_HOME=/Users/kentontroydavis/Documents/development/cortex/projects
 
 % cortex skill add ${PROJECT_HOME}/openflow-watermark-batch-ingestion
